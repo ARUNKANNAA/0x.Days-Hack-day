@@ -1,0 +1,307 @@
+#define BLYNK_TEMPLATE_ID "TMPL3hpWx33oK"
+#define BLYNK_TEMPLATE_NAME "aid for all"
+#define BLYNK_AUTH_TOKEN "RFYcPGakyPrvz_MMLfb0WqX_bcOD5Fzv"
+
+TaskHandle_t Task1;
+TaskHandle_t Task2;
+int a;
+#include <esp_now.h>
+#include <Keypad.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <MPU6050.h>
+uint8_t broadcastAddress[] = { 0xFC, 0xE8, 0xC0, 0x7A, 0xB3, 0x3C };//FC:E8:C0:7A:B3:3C
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+MPU6050 mpu;
+#define BLYNK_PRINT Serial
+//#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp32.h>
+#include <DHT.h>
+
+void onDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
+  Serial.print("Last Packet Send Status: ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+char auth[] = BLYNK_AUTH_TOKEN;
+
+BlynkTimer timer;
+#define DHTPIN 26      // Pin connected to the DATA pin of DHT11
+#define DHTTYPE DHT11  // DHT 11
+
+DHT dht(DHTPIN, DHTTYPE);
+
+
+const char* ssid = "0Xday5";
+const char* password = "smvec@123";
+
+const char* account_sid = "AC436c952fb193608517c03bea2487db51";
+const char* auth_token = "6978ebbb58f0a814dbb6cecb47e1d13b";
+const char* from_number = "+19258544965";
+const char* to_number = "+918072522040";
+
+#define ROW_NUM 4     // four rows
+#define COLUMN_NUM 4  // four columns
+
+char keys[ROW_NUM][COLUMN_NUM] = {
+  { '1', '2', '3', 'A' },
+  { '4', '5', '6', 'B' },
+  { '7', '8', '9', 'C' },
+  { '*', '0', '#', 'D' }
+};
+
+byte pin_rows[ROW_NUM] = { 2, 0, 4, 16 };         // connect to the row pins
+byte pin_column[COLUMN_NUM] = { 17, 5, 18, 19 };  // connect to the column pins
+
+Keypad keypad = Keypad(makeKeymap(keys), pin_rows, pin_column, ROW_NUM, COLUMN_NUM);
+
+void setup() {
+  pinMode(14, OUTPUT);
+  pinMode(33, OUTPUT);
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // Register callback function to get status of sending data
+  esp_now_register_send_cb(onDataSent);
+
+  // Register peer
+  esp_now_peer_info_t peerInfo;
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  // Add peer
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    return;
+  }
+  Blynk.begin(auth, ssid, password);
+  dht.begin();
+  timer.setInterval(100L, temp);
+  lcd.begin();
+  lcd.backlight();
+  mpu.initialize();
+
+  xTaskCreatePinnedToCore(
+    Task1code,  // Task function.
+    "Task1",    // name of task.
+    10000,      // Stack size of task
+    NULL,       // parameter of the task
+    1,          // priority of the task
+    &Task1,     // Task handle to keep track of created task
+    0);         // pin task to core 0
+
+  xTaskCreatePinnedToCore(
+    Task2code,  // Task function.
+    "Task2",    // name of task.
+    10000,      // Stack size of task
+    NULL,       // parameter of the task
+    1,          // priority of the task
+    &Task2,     // Task handle to keep track of created task
+    1);         // pin task to core 1
+
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected!");
+  Wire.begin();
+}
+
+void Task1code(void* pvParameters) {
+  while (1) {
+    char key = keypad.getKey();
+
+    if (key == '1') {
+      lcd.clear();
+      lcd.print("NEED WATER !");
+      sendSMS("NEED WATER !");
+    } else if (key == '2') {
+      lcd.clear();
+      lcd.print("GIVE ME TABLETS ");
+      sendSMS("GIVE ME TABLETS ");
+    } else if (key == '3') {
+      lcd.clear();
+      lcd.print(" RESTROOM");
+      sendSMS("RESTROOM");
+    } else if (key == '4') {
+      lcd.clear();
+      lcd.print("I NEED REST ");
+      sendSMS("I NEED REST ");
+    } else if (key == '5') {
+      lcd.clear();
+      lcd.print("I AM HUNGRY ");
+      sendSMS("I AM HUNGRY ");
+    } else if (key == '7') {
+      lcd.clear();
+      lcd.print("LIGHT ON ");
+      a = 1;  // Read the switch state
+      esp_err_t result = esp_now_send(broadcastAddress, (uint8_t*)&a, sizeof(a));
+      if (result == ESP_OK) {
+        Serial.println("Sent with success");
+      } else {
+        Serial.println("Error sending the data");
+      }
+      delay(1000);
+    } else if (key == '9') {
+      lcd.clear();
+      lcd.print("FAN ON");
+      Serial.println("f");
+    } else if (key == 'A') {
+      lcd.clear();
+      lcd.print("EMERGENCY");
+      digitalWrite(33, HIGH);
+    } else if (key == 'B') {
+      lcd.clear();
+      lcd.print("RELAX");
+      digitalWrite(33, LOW);
+    } else if (key == 'C') {
+      lcd.clear();
+      lcd.print("FAN OFF");
+      //digitalWrite(11, LOW);
+    } else if (key == '8') {
+      lcd.clear();
+      lcd.print("LIGHT OFF");
+      a = 0;  // Read the switch state
+      esp_err_t result = esp_now_send(broadcastAddress, (uint8_t*)&a, sizeof(a));
+      if (result == ESP_OK) {
+        Serial.println("Sent with success");
+      } else {
+        Serial.println("Error sending the data");
+      }
+      delay(1000);
+
+    } else if (key == '*') {
+      lcd.clear();
+      lcd.print("Ambulance");
+      makeCall();
+    } else if (key == '0') {
+      lcd.clear();
+    } else if (key == '#') {
+      lcd.clear();
+      lcd.print("Yes");
+    } else if (key == 'D') {
+      lcd.clear();
+      lcd.print("No");
+    }
+    vTaskDelay(100 / portTICK_PERIOD_MS);  // 100 ms delay to let other tasks run
+  }
+}
+
+
+//Task2code: blinks an LED every 500 ms
+void Task2code(void* pvParameters) {
+  while (1) {
+    Blynk.run();
+    timer.run();
+    delay(500);
+    int16_t ax, ay, az;
+
+    // Read the accelerometer data
+    mpu.getAcceleration(&ax, &ay, &az);
+
+    if (abs(ax) > abs(ay) && abs(ax) > abs(az)) {
+      Serial.println("Direction: X");
+      digitalWrite(33, HIGH);  // Turn on the buzzer when leaning towards X
+    } else if (abs(az) > abs(ax) && abs(az) > abs(ay)) {
+      //Serial.println("Direction: Z");
+      digitalWrite(33, LOW);  // Turn off the buzzer when staying in Z
+    } else {
+      digitalWrite(33, HIGH);  // Keep the buzzer off in other cases
+    }
+
+    // Delay for a moment
+    delay(100);
+  }
+}
+
+
+
+void loop() {
+}
+
+void temp() {
+  float humidity = dht.readHumidity();
+  float temperatureC = dht.readTemperature();
+  float temperatureF = dht.readTemperature(true);
+
+  if (isnan(humidity) || isnan(temperatureC) || isnan(temperatureF)) {
+    //Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+  Blynk.virtualWrite(V0, temperatureC);
+  Blynk.virtualWrite(V1, humidity);
+  Blynk.virtualWrite(V2, temperatureF);
+  Serial.print("Humidity: ");
+  Serial.print(humidity);
+  Serial.print(" %\t");
+  Serial.print("Temperature: ");
+  Serial.print(temperatureC);
+  Serial.print(" °C ");
+  Serial.print(temperatureF);
+  Serial.println(" °F");
+}
+
+void sendSMS(String message) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    String url = "https://api.twilio.com/2010-04-01/Accounts/" + String(account_sid) + "/Messages.json";
+    String data = "To=" + String(to_number) + "&From=" + String(from_number) + "&Body=" + message;
+
+    http.begin(url);
+    http.setAuthorization(account_sid, auth_token);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    int httpResponseCode = http.POST(data);
+
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response);
+    } else {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("Error in WiFi connection");
+  }
+}
+void makeCall() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    String url = "https://api.twilio.com/2010-04-01/Accounts/" + String(account_sid) + "/Calls.json";
+    String data = "To=" + String(to_number) + "&From=" + String(from_number) + "&Url=http://demo.twilio.com/docs/voice.xml";
+
+    http.begin(url);
+    http.setAuthorization(account_sid, auth_token);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    int httpResponseCode = http.POST(data);
+
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println("Call initiated successfully!");
+      Serial.println(response);
+    } else {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi not connected");
+  }
+}
